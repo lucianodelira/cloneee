@@ -1,0 +1,386 @@
+document.addEventListener("DOMContentLoaded", async () => {
+	await initHeroSlider();
+	await initPremiosCarousel();
+	initCounters();
+	initSmoothAnchors();
+	initActiveMenu();
+	initBannerWatcher();
+});
+
+let HERO_BANNERS = [];
+let HERO_BANNERS_VERSION = "";
+
+async function initHeroSlider() {
+	const slidesWrap = document.getElementById("heroSlides");
+	const dotsWrap = document.getElementById("heroDots");
+
+	if (!slidesWrap || !dotsWrap) {
+		return;
+	}
+
+	try {
+		const response = await fetch(`includes/api/banners.php?ts=${Date.now()}`, {
+			cache: "no-store"
+		});
+
+		if (!response.ok) {
+			return;
+		}
+
+		const data = await response.json();
+
+		if (!data || data.status !== "ok" || !Array.isArray(data.banners) || !data.banners.length) {
+			slidesWrap.innerHTML = "";
+			dotsWrap.innerHTML = "";
+			return;
+		}
+
+		HERO_BANNERS = data.banners;
+		HERO_BANNERS_VERSION = data.version || String(Date.now());
+
+		renderHeroSlider(slidesWrap, dotsWrap, HERO_BANNERS, HERO_BANNERS_VERSION);
+	} catch (error) {
+		console.error("Erro ao carregar banners:", error);
+	}
+}
+
+function renderHeroSlider(slidesWrap, dotsWrap, banners, bannerVersion) {
+	slidesWrap.innerHTML = "";
+	dotsWrap.innerHTML = "";
+
+	banners.forEach((banner, index) => {
+		const desktopSrc = addVersionToUrl(banner.desktop, bannerVersion);
+		const mobileSrc = addVersionToUrl(banner.mobile, bannerVersion);
+
+		const slide = document.createElement("a");
+		slide.className = `lp-hero-slide${index === 0 ? " active" : ""}`;
+		slide.href = banner.link || "#";
+		slide.target = "_blank";
+		slide.rel = "noopener noreferrer";;
+
+		slide.innerHTML = `
+			<picture>
+				<source media="(max-width: 768px)" srcset="${mobileSrc}">
+				<img src="${desktopSrc}" alt="${banner.alt}" class="lp-hero-banner-img">
+			</picture>
+		`;
+
+		slidesWrap.appendChild(slide);
+
+		const dot = document.createElement("button");
+		dot.type = "button";
+		dot.className = `lp-hero-dot${index === 0 ? " active" : ""}`;
+		dot.setAttribute("aria-label", `Ir para banner ${index + 1}`);
+
+		dot.addEventListener("click", () => {
+			showSlide(index);
+			resetAuto();
+		});
+
+		dotsWrap.appendChild(dot);
+	});
+
+	let current = 0;
+	const slides = () => slidesWrap.querySelectorAll(".lp-hero-slide");
+	const dots = () => dotsWrap.querySelectorAll(".lp-hero-dot");
+
+	function showSlide(index) {
+		slides().forEach((slide, i) => slide.classList.toggle("active", i === index));
+		dots().forEach((dot, i) => dot.classList.toggle("active", i === index));
+		current = index;
+	}
+
+	function nextSlide() {
+		const total = slides().length;
+		if (!total) return;
+		showSlide((current + 1) % total);
+	}
+
+	let auto = setInterval(nextSlide, 5000);
+
+	function resetAuto() {
+		clearInterval(auto);
+		auto = setInterval(nextSlide, 5000);
+	}
+}
+
+function addVersionToUrl(url, version) {
+	if (!url) return "";
+	const separator = url.includes("?") ? "&" : "?";
+	return `${url}${separator}v=${encodeURIComponent(version)}`;
+}
+
+function initBannerWatcher() {
+	let lastVersion = HERO_BANNERS_VERSION || "";
+
+	setInterval(async () => {
+		try {
+			const response = await fetch(`includes/api/banners.php?check=${Date.now()}`, {
+				cache: "no-store"
+			});
+
+			if (!response.ok) return;
+
+			const data = await response.json();
+
+			if (!data || data.status !== "ok") return;
+
+			const newVersion = data.version || "";
+
+			if (lastVersion && newVersion && newVersion !== lastVersion) {
+				location.reload();
+				return;
+			}
+
+			if (!lastVersion && newVersion) {
+				lastVersion = newVersion;
+			}
+		} catch (error) {
+			// silencioso
+		}
+	}, 30000);
+}
+
+/* =========================
+   PREMIAÇÕES CARROSSEL
+========================= */
+
+async function initPremiosCarousel() {
+	const track = document.getElementById("premiosTrack");
+	const prevBtn = document.getElementById("premiosPrev");
+	const nextBtn = document.getElementById("premiosNext");
+	const carousel = document.getElementById("premiosCarousel");
+
+	if (!track || !prevBtn || !nextBtn || !carousel) {
+		return;
+	}
+
+	try {
+		const response = await fetch(`includes/api/premios.php?ts=${Date.now()}`, {
+			cache: "no-store"
+		});
+
+		if (!response.ok) {
+			return;
+		}
+
+		const data = await response.json();
+
+		if (!data || data.status !== "ok" || !Array.isArray(data.premios) || !data.premios.length) {
+			track.innerHTML = "";
+			return;
+		}
+
+		const premios = data.premios;
+		let currentIndex = 0;
+		let autoPlay = null;
+
+		function getItemsPerView() {
+			return window.innerWidth <= 767 ? 1 : 3;
+		}
+
+		function renderPremios() {
+			track.innerHTML = "";
+
+			premios.forEach((premio) => {
+				const item = document.createElement("div");
+				item.className = "lp-premio-slide";
+
+				item.innerHTML = `
+					<div class="lp-premio-card">
+						<img src="${addVersionToUrl(premio.imagem, data.version || Date.now())}" alt="${premio.nome}">
+					</div>
+				`;
+
+				track.appendChild(item);
+			});
+
+			updateCarousel();
+		}
+
+		function updateCarousel() {
+			const itemsPerView = getItemsPerView();
+			const totalItems = premios.length;
+			const maxIndex = Math.max(0, totalItems - itemsPerView);
+		
+			if (currentIndex > maxIndex) {
+				currentIndex = maxIndex;
+			}
+		
+			const slideWidth = 100 / itemsPerView;
+			const translateX = currentIndex * slideWidth;
+		
+			track.style.transform = `translateX(-${translateX}%)`;
+		
+			const precisaSetas = totalItems > itemsPerView;
+		
+			prevBtn.disabled = currentIndex === 0;
+			nextBtn.disabled = currentIndex >= maxIndex;
+		
+			prevBtn.classList.toggle("is-hidden", !precisaSetas);
+			nextBtn.classList.toggle("is-hidden", !precisaSetas);
+		}
+
+		function nextPremio() {
+			const itemsPerView = getItemsPerView();
+			const maxIndex = Math.max(0, premios.length - itemsPerView);
+
+			if (currentIndex < maxIndex) {
+				currentIndex++;
+			} else {
+				currentIndex = 0;
+			}
+
+			updateCarousel();
+		}
+
+		function prevPremio() {
+			const itemsPerView = getItemsPerView();
+			const maxIndex = Math.max(0, premios.length - itemsPerView);
+
+			if (currentIndex > 0) {
+				currentIndex--;
+			} else {
+				currentIndex = maxIndex;
+			}
+
+			updateCarousel();
+		}
+
+		function startAutoPlay() {
+			stopAutoPlay();
+			autoPlay = setInterval(nextPremio, 4000);
+		}
+
+		function stopAutoPlay() {
+			if (autoPlay) {
+				clearInterval(autoPlay);
+				autoPlay = null;
+			}
+		}
+
+		prevBtn.addEventListener("click", prevPremio);
+		nextBtn.addEventListener("click", nextPremio);
+
+		carousel.addEventListener("mouseenter", stopAutoPlay);
+		carousel.addEventListener("mouseleave", startAutoPlay);
+
+		window.addEventListener("resize", updateCarousel);
+
+		renderPremios();
+		startAutoPlay();
+	} catch (error) {
+		console.error("Erro ao carregar premiações:", error);
+	}
+}
+
+function initCounters() {
+	const counters = document.querySelectorAll(".counter");
+
+	if (!counters.length) return;
+
+	const observer = new IntersectionObserver((entries) => {
+		entries.forEach((entry) => {
+			if (!entry.isIntersecting) return;
+
+			const el = entry.target;
+			const target = parseInt(el.dataset.target || "0", 10);
+			const duration = 1400;
+			const startTime = performance.now();
+
+			function updateCounter(now) {
+				const elapsed = now - startTime;
+				const progress = Math.min(elapsed / duration, 1);
+				const value = Math.floor(progress * target);
+
+				el.textContent = value.toLocaleString("pt-BR") + "+";
+
+				if (progress < 1) {
+					requestAnimationFrame(updateCounter);
+				} else {
+					el.textContent = target.toLocaleString("pt-BR") + "+";
+				}
+			}
+
+			requestAnimationFrame(updateCounter);
+			observer.unobserve(el);
+		});
+	}, { threshold: 0.45 });
+
+	counters.forEach((counter) => observer.observe(counter));
+}
+
+function initSmoothAnchors() {
+	const OFFSET = 120;
+	const DURATION = 800;
+
+	document.querySelectorAll('a[href^="#"]').forEach((anchor) => {
+		anchor.addEventListener("click", (e) => {
+			const href = anchor.getAttribute("href");
+
+			if (!href || href === "#") return;
+
+			const target = document.querySelector(href);
+			if (!target) return;
+
+			e.preventDefault();
+
+			const startY = window.pageYOffset;
+			const targetY = target.getBoundingClientRect().top + window.pageYOffset - OFFSET;
+			const distance = targetY - startY;
+			const startTime = performance.now();
+
+			function easeInOutCubic(t) {
+				return t < 0.5
+					? 4 * t * t * t
+					: 1 - Math.pow(-2 * t + 2, 3) / 2;
+			}
+
+			function animateScroll(currentTime) {
+				const elapsed = currentTime - startTime;
+				const progress = Math.min(elapsed / DURATION, 1);
+				const eased = easeInOutCubic(progress);
+
+				window.scrollTo(0, startY + distance * eased);
+
+				if (progress < 1) {
+					requestAnimationFrame(animateScroll);
+				}
+			}
+
+			requestAnimationFrame(animateScroll);
+
+			if (window.history && window.history.replaceState) {
+				window.history.replaceState(null, "", window.location.pathname + window.location.search);
+			}
+		});
+	});
+}
+
+function initActiveMenu() {
+	const sections = document.querySelectorAll("section[id]");
+	const links = document.querySelectorAll(".lp-nav a, .lp-offcanvas-nav a");
+
+	function activateMenu() {
+		let scrollY = window.pageYOffset;
+
+		sections.forEach((section) => {
+			const sectionTop = section.offsetTop - 140;
+			const sectionHeight = section.offsetHeight;
+			const sectionId = section.getAttribute("id");
+
+			if (scrollY >= sectionTop && scrollY < sectionTop + sectionHeight) {
+				links.forEach((link) => {
+					link.classList.remove("active");
+
+					if (link.getAttribute("href") === "#" + sectionId) {
+						link.classList.add("active");
+					}
+				});
+			}
+		});
+	}
+
+	window.addEventListener("scroll", activateMenu);
+	activateMenu();
+}
